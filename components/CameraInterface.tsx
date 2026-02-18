@@ -14,6 +14,7 @@ export const CameraInterface: React.FC<CameraInterfaceProps> = ({ onCapture, onO
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [lens, setLens] = useState<LensType>(LensType.WIDE);
   const [error, setError] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(true);
   
   // Fake settings state to simulate camera adjusting to light
   const [settings, setSettings] = useState<CameraSettings>({
@@ -25,52 +26,87 @@ export const CameraInterface: React.FC<CameraInterfaceProps> = ({ onCapture, onO
 
   const [batteryLevel, setBatteryLevel] = useState(100);
 
-  // Initialize Camera
+  // Initialize Camera with Fallback
   useEffect(() => {
+    let active = true;
     const startCamera = async () => {
+      setLoading(true);
+      setError('');
       try {
-        const constraints = {
-          video: {
-            facingMode: 'environment', // Rear camera by default
-            width: { ideal: 4096 },
-            height: { ideal: 2160 }
-          },
+        // Try high-quality rear camera first
+        try {
+          const constraints = {
+            video: {
+              facingMode: 'environment',
+              width: { ideal: 4096 },
+              height: { ideal: 2160 }
+            },
+            audio: false
+          };
+          const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (active) {
+            setStream(mediaStream);
+            if (videoRef.current) {
+              videoRef.current.srcObject = mediaStream;
+            }
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          console.warn("High-quality rear camera failed, trying fallback...", e);
+        }
+
+        // Fallback to any camera
+        const fallbackConstraints = {
+          video: true,
           audio: false
         };
-        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-        setStream(mediaStream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
+        const mediaStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+        if (active) {
+          setStream(mediaStream);
+          if (videoRef.current) {
+            videoRef.current.srcObject = mediaStream;
+          }
+          setLoading(false);
         }
+
       } catch (err) {
-        setError('Camera access denied or unavailable.');
-        console.error(err);
+        if (active) {
+          setError('Camera access denied or unavailable. Please ensure permissions are granted.');
+          setLoading(false);
+          console.error(err);
+        }
       }
     };
 
     startCamera();
 
-    // Battery API (Chrome only, simulated elsewhere)
-    if ('getBattery' in navigator) {
+    // Battery API
+    if (typeof navigator !== 'undefined' && 'getBattery' in navigator) {
       // @ts-ignore
       navigator.getBattery().then((battery: any) => {
-        setBatteryLevel(Math.floor(battery.level * 100));
-        battery.addEventListener('levelchange', () => {
+        if (active) {
            setBatteryLevel(Math.floor(battery.level * 100));
-        });
-      });
+           battery.addEventListener('levelchange', () => {
+              if (active) setBatteryLevel(Math.floor(battery.level * 100));
+           });
+        }
+      }).catch((e: any) => console.log("Battery API not supported", e));
     }
 
     // Simulate settings changes
     const interval = setInterval(() => {
-      setSettings(prev => ({
-        ...prev,
-        iso: Math.random() > 0.5 ? 100 : 125,
-        shutterSpeed: Math.random() > 0.5 ? '1/250' : '1/320'
-      }));
+      if (active) {
+        setSettings(prev => ({
+          ...prev,
+          iso: Math.random() > 0.5 ? 100 : 125,
+          shutterSpeed: Math.random() > 0.5 ? '1/250' : '1/320'
+        }));
+      }
     }, 2000);
 
     return () => {
+      active = false;
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
       }
@@ -91,12 +127,11 @@ export const CameraInterface: React.FC<CameraInterfaceProps> = ({ onCapture, onO
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
-    // Flip horizontally if mirroring is needed (usually not for rear cam)
-    // ctx.scale(-1, 1);
-    // ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
     
-    // Simple draw
+    // Draw the image
+    // Note: We are capturing the raw feed, not the CSS filtered one.
+    // To bake in the Sony look, we could use filter on context, but typically we want raw for AI processing.
+    // However, if we want the "Sony tone" to be instant, let's keep it raw for AI to enhance properly.
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const imageSrc = canvas.toDataURL('image/jpeg', 0.95);
@@ -106,7 +141,7 @@ export const CameraInterface: React.FC<CameraInterfaceProps> = ({ onCapture, onO
   // Lens Change Logic (Simulated Zoom)
   const getScale = () => {
     switch (lens) {
-      case LensType.ULTRA_WIDE: return 0.6; // Simulate wide by zooming out (requires container overflow hidden)
+      case LensType.ULTRA_WIDE: return 0.6; // Simulate wide by zooming out
       case LensType.WIDE: return 1;
       case LensType.TELEPHOTO: return 2; // Digital crop
       default: return 1;
@@ -117,10 +152,23 @@ export const CameraInterface: React.FC<CameraInterfaceProps> = ({ onCapture, onO
     <div className="relative h-screen w-full bg-black flex flex-col md:flex-row overflow-hidden">
       {/* Main Viewfinder Area */}
       <div className="relative flex-1 bg-neutral-900 overflow-hidden flex items-center justify-center">
+        {loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-40 bg-black text-white">
+            <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mb-4" />
+            <p className="font-mono text-sm tracking-widest">INITIALIZING SENSOR...</p>
+          </div>
+        )}
+        
         {error ? (
-          <div className="text-red-500 text-center p-4">
-            <p>{error}</p>
-            <button className="mt-4 px-4 py-2 bg-neutral-800 rounded" onClick={() => window.location.reload()}>Retry</button>
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-black text-red-500 p-4">
+            <Icons.Camera className="w-12 h-12 mb-4 opacity-50" />
+            <p className="text-center mb-4 font-mono">{error}</p>
+            <button 
+              className="px-6 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded font-mono text-xs uppercase tracking-wider" 
+              onClick={() => window.location.reload()}
+            >
+              Restart System
+            </button>
           </div>
         ) : (
           <div className="relative w-full h-full">
@@ -129,12 +177,9 @@ export const CameraInterface: React.FC<CameraInterfaceProps> = ({ onCapture, onO
                autoPlay 
                playsInline 
                muted 
-               className="absolute top-1/2 left-1/2 min-w-full min-h-full object-cover transition-transform duration-500 ease-out"
+               className="sony-look absolute top-1/2 left-1/2 min-w-full min-h-full object-cover transition-transform duration-500 ease-out"
                style={{ 
                  transform: `translate(-50%, -50%) scale(${getScale()})`,
-                 // When zooming out (ultra-wide simulation), we might see black borders if video doesn't cover enough. 
-                 // In a real app, we'd switch cameras. Here we rely on scaling. 
-                 // If scale < 1, we might need a bigger video source or accept borders (Sony style borders are fine).
                }}
              />
              <SonyOSD settings={settings} lens={lens} batteryLevel={batteryLevel} />
@@ -144,7 +189,7 @@ export const CameraInterface: React.FC<CameraInterfaceProps> = ({ onCapture, onO
       </div>
 
       {/* Control Strip (Right side on Landscape/Fold, Bottom on Mobile Portrait) */}
-      <div className="bg-black text-white p-4 z-30 flex md:flex-col items-center justify-between md:w-32 md:border-l border-neutral-800 shadow-2xl">
+      <div className="bg-black text-white p-4 z-30 flex md:flex-col items-center justify-between md:w-32 md:border-l border-neutral-800 shadow-2xl safe-area-pb">
         
         {/* Top Controls */}
         <div className="flex md:flex-col gap-6 md:mt-4">
