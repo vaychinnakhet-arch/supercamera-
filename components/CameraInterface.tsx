@@ -32,6 +32,25 @@ export const CameraInterface: React.FC<CameraInterfaceProps> = ({ onCapture, onO
     const startCamera = async () => {
       setLoading(true);
       setError('');
+
+      // Check for Secure Context
+      if (window.isSecureContext === false) {
+        if (active) {
+          setError('Camera requires HTTPS or localhost (Secure Context).');
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Check for MediaDevices API
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+         if (active) {
+          setError('Camera API not supported in this browser.');
+          setLoading(false);
+        }
+        return;
+      }
+
       try {
         // Try high-quality rear camera first
         try {
