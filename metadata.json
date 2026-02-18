@@ -1,0 +1,7 @@
+{
+  "name": "Alpha Fold Pro",
+  "description": "A professional-grade photography application designed for the Galaxy Z Fold 7, featuring Sony A1-inspired color science, simulated lens focal lengths, and AI-powered high-resolution image stacking.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
