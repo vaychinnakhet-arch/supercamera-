@@ -46,6 +46,14 @@
 </script>
 </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div style="height: 100vh; width: 100vw; background-color: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #333;">
+        <div style="width: 40px; height: 40px; border: 2px solid #ea580c; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        <p style="margin-top: 16px; font-family: monospace; font-size: 12px; letter-spacing: 2px; color: #666;">LOADING SYSTEM...</p>
+      </div>
+    </div>
+    <style>
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
   </body>
 </html>

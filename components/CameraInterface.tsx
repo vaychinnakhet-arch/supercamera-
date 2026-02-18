@@ -52,46 +52,58 @@ export const CameraInterface: React.FC<CameraInterfaceProps> = ({ onCapture, onO
       }
 
       try {
-        // Try high-quality rear camera first
+        let mediaStream = null;
+
+        // 1. Try high-quality rear camera (Samsung/Sony ideal)
         try {
           const constraints = {
             video: {
               facingMode: 'environment',
-              width: { ideal: 4096 },
+              width: { ideal: 4096 }, // Try for 4K
               height: { ideal: 2160 }
             },
             audio: false
           };
-          const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-          if (active) {
-            setStream(mediaStream);
-            if (videoRef.current) {
-              videoRef.current.srcObject = mediaStream;
-            }
-            setLoading(false);
-            return;
-          }
+          mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         } catch (e) {
-          console.warn("High-quality rear camera failed, trying fallback...", e);
+          console.warn("High-res camera failed, trying standard rear...", e);
         }
 
-        // Fallback to any camera
-        const fallbackConstraints = {
-          video: true,
-          audio: false
-        };
-        const mediaStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-        if (active) {
+        // 2. Fallback to standard rear camera
+        if (!mediaStream) {
+           try {
+             mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment' },
+                audio: false
+             });
+           } catch(e) {
+             console.warn("Rear camera failed, trying any camera...", e);
+           }
+        }
+
+        // 3. Last resort: any video source
+        if (!mediaStream) {
+           mediaStream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false
+           });
+        }
+
+        if (active && mediaStream) {
           setStream(mediaStream);
           if (videoRef.current) {
             videoRef.current.srcObject = mediaStream;
+            // Explicitly call play() for mobile browsers that might block autoplay
+            videoRef.current.play().catch(e => console.error("Auto-play failed:", e));
           }
           setLoading(false);
+        } else if (active) {
+          throw new Error("No video stream available");
         }
 
       } catch (err) {
         if (active) {
-          setError('Camera access denied or unavailable. Please ensure permissions are granted.');
+          setError('Camera access denied. Please check site permissions.');
           setLoading(false);
           console.error(err);
         }
@@ -149,8 +161,8 @@ export const CameraInterface: React.FC<CameraInterfaceProps> = ({ onCapture, onO
     
     // Draw the image
     // Note: We are capturing the raw feed, not the CSS filtered one.
-    // To bake in the Sony look, we could use filter on context, but typically we want raw for AI processing.
-    // However, if we want the "Sony tone" to be instant, let's keep it raw for AI to enhance properly.
+    // The "Sony Look" CSS is for viewfinder preview.
+    // The AI Service will apply the Sony Color Science to the captured image.
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const imageSrc = canvas.toDataURL('image/jpeg', 0.95);
